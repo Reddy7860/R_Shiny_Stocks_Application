@@ -1,0 +1,1049 @@
+---
+title: "BOT_Trading"
+author: "Sai Teja Reddy"
+date: "01 Feb 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+nse_data <- read.csv(paste0(getwd(),"/data/Nifty50_Stocks.csv", sep = ""))
+    
+Signal_df = data.frame("Strategy"=character(0), "Stock"=character(0),"Signal"=character(0),"Datetime"=character(0),"Value"=character(0))
+    
+    increment = 1
+    
+    for (i in 1:length(input$bot_strategy)) {
+      if(input$bot_strategy[i] == "sweths_violation"){
+
+        for(i in 1:nrow(nse_data)){
+          stock = nse_data[i,2]
+          # print(stock)
+          
+          response_data <- fromJSON(paste0("https://query1.finance.yahoo.com/v8/finance/chart/",stock,"?region=IN&lang=en-IN&includePrePost=false&interval=",input$bot_timeframe,"&range=1d&corsDomain=in.finance.yahoo.com&.tsrc=financet",""))
+          
+          stock_timestamp <- response_data$chart$result[[1]]$timestamp
+          Close <- response_data$chart$result[[1]]$indicators$quote[[1]]$close
+          High <- response_data$chart$result[[1]]$indicators$quote[[1]]$high
+          Low <- response_data$chart$result[[1]]$indicators$quote[[1]]$low
+          Open <- response_data$chart$result[[1]]$indicators$quote[[1]]$open
+          Volume <- response_data$chart$result[[1]]$indicators$quote[[1]]$volume
+          
+          final_data <- as.data.frame(cbind(as.POSIXct(stock_timestamp, origin="1970-01-01"),Close,High,Low,Open,Volume))
+          if(typeof(final_data$V1) == "list"){
+            final_data <- final_data[-c(which(final_data$Close == "NULL")),]
+            new_stock_timestamp <- unlist(final_data$V1)
+            Close <- unlist(final_data$Close)
+            High <- unlist(final_data$High)
+            Open <- unlist(final_data$Open)
+            Low <- unlist(final_data$Low)
+            Volume <- unlist(final_data$Volume)
+            
+            final_data <- data.frame(new_stock_timestamp,Close,High,Low,Open,Volume)
+            
+            final_data$dates <- as.POSIXct(final_data$new_stock_timestamp, origin="1970-01-01")
+            
+            final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+          }
+          else{
+            final_data$dates <- as.POSIXct(final_data$V1, origin="1970-01-01")
+            
+            final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+          }
+          
+          trigger_price = 0
+          stage = ""
+          
+          if((final_data[1,"Close"]>final_data[1,"Open"]) && abs(final_data[1,"Close"] - final_data[1,"Open"])>= 0.7*abs(final_data[1,"High"] - final_data[1,"Low"])){
+            trigger_price = final_data[1,"Low"]
+            stage = "Green"
+          }
+          else if((final_data[1,"Close"]<final_data[1,"Open"]) && abs(final_data[1,"Close"] - final_data[1,"Open"])>= 0.7*abs(final_data[1,"High"] - final_data[1,"Low"])){
+            trigger_price = final_data[1,"High"]
+            stage = "Red"
+          }
+          else{
+            next
+          }
+          
+          satisfied_df = data.frame()
+          
+          for(j in 5:nrow(final_data)){
+            
+            if(stage == "Green"){
+              if(final_data[j,"Close"] < trigger_price){
+                satisfied_df = rbind(satisfied_df,final_data[j,])
+                call ="Sell"
+                print(stock)
+                print("Moving up")
+              }
+            }
+            else if(stage == "Red"){
+              if(final_data[j,"Close"] > trigger_price){
+                satisfied_df = rbind(satisfied_df,final_data[j,])
+                call = "Buy"
+                print(stock)
+                print("Moving Down")
+              }
+            }
+            else{
+              next
+            }
+            
+          }
+          
+          if(nrow(satisfied_df) == 0){
+            next
+          }
+          else{
+            # print(satisfied_df)
+            satisfied_df = head(satisfied_df,1)
+            Signal_df[increment,"Strategy"] <- "Sweths Violation"
+            Signal_df[increment,"Stock"]=stock
+            Signal_df[increment,"Signal"]=call
+            Signal_df[increment,"Datetime"]=satisfied_df[1,"dates"]
+            Signal_df[increment,"Value"]=satisfied_df[1,"Close"]
+            
+            increment = increment + 1
+          }
+          
+        }
+        
+      }
+      else if(input$bot_strategy[i] == "cowboy"){
+        # final_levels_df = data.frame("Stock" = character(0),"Rider_Bullish" = character(0),"Bullish_Level"=character(0),"Rider_Bearish"=character(0),"Bearish_Level"=character(0))
+        # 
+        # for(i in 1:nrow(nse_data)){
+        #   stock = nse_data[i,2]
+        #   today = Sys.Date()
+        #   f <- function(d)if(format(d - 1, '%w') %in% c(0, 5)) Recall(d - 1) else d
+        #   previousWorkingDay <- f(today) - 1
+        #   
+        #   stock_data <- getSymbols(stock, src = "yahoo", from = "2021-01-01", to = previousWorkingDay, auto.assign = FALSE)
+        #   # stock_data <- getSymbols(stock, src = "yahoo", from = "2021-01-01", to = "2021-01-15", auto.assign = FALSE)
+        #   
+        #   
+        #   stock_data <- tail(stock_data,4)
+        #   
+        #   # print(stock_data)
+        #   
+        #   temp_df <- data.frame("Stock" = character(0),"Rider_Bullish" = character(0),"Bullish_Level"=character(0),"Rider_Bearish"=character(0),"Bearish_Level"=character(0))
+        #   
+        #   temp_df[1,'Stock'] <- stock
+        #   
+        #   stock_data <- data.frame(stock_data)
+        #   
+        #   
+        #   if(abs((stock_data[4,2] - stock_data[3,2])/(stock_data[3,2])*100) < 0.5){
+        #     temp_df[1,"Rider_Bullish"] = "Yes"
+        #     temp_df[1,"Bullish_Level"] = max(stock_data[4,2],stock_data[3,2])
+        #   }
+        #   else{
+        #     temp_df[1,"Rider_Bullish"] = "No"
+        #     temp_df[1,"Bullish_Level"] = 100000
+        #   }
+        #   if(abs((stock_data[4,3] - stock_data[3,3])/(stock_data[3,3])*100) < 0.5){
+        #     temp_df[1,"Rider_Bearish"] = "Yes"
+        #     temp_df[1,"Bearish_Level"] = min(stock_data[4,3],stock_data[3,3])
+        #   }
+        #   else{
+        #     temp_df[1,"Rider_Bearish"] = "No"
+        #     temp_df[1,"Bearish_Level"] = 0
+        #   }
+        #   # print(temp_df)
+        #   final_levels_df = rbind(final_levels_df,temp_df)
+        # }
+        
+        final_levels_df <- read.csv(paste0(getwd(),"/data/cowboy_data.csv", sep = ""))
+        
+        final_levels_df <- subset(final_levels_df, select = -c(X) )
+        
+        # View(final_levels_df)
+        
+        # Signal_df = data.frame("Stock"=character(0),"Signal"=character(0),"Datetime"=character(0),"Value"=character(0))
+        
+        # inc = 1
+        
+        for(i in 1:nrow(nse_data)){
+          stock = nse_data[i,2]
+          print(stock)
+          response_data <- fromJSON(paste0("https://query1.finance.yahoo.com/v8/finance/chart/",stock,"?region=IN&lang=en-IN&includePrePost=false&interval=",input$bot_timeframe,"&range=1d&corsDomain=in.finance.yahoo.com&.tsrc=financet",""))
+          
+          stock_timestamp <- response_data$chart$result[[1]]$timestamp
+          Close <- response_data$chart$result[[1]]$indicators$quote[[1]]$close
+          High <- response_data$chart$result[[1]]$indicators$quote[[1]]$high
+          Low <- response_data$chart$result[[1]]$indicators$quote[[1]]$low
+          Open <- response_data$chart$result[[1]]$indicators$quote[[1]]$open
+          Volume <- response_data$chart$result[[1]]$indicators$quote[[1]]$volume
+          
+          final_data <- as.data.frame(cbind(as.POSIXct(stock_timestamp, origin="1970-01-01"),Close,High,Low,Open,Volume))
+          if(typeof(final_data$V1) == "list"){
+            final_data <- final_data[-c(which(final_data$Close == "NULL")),]
+            new_stock_timestamp <- unlist(final_data$V1)
+            Close <- unlist(final_data$Close)
+            High <- unlist(final_data$High)
+            Open <- unlist(final_data$Open)
+            Low <- unlist(final_data$Low)
+            Volume <- unlist(final_data$Volume)
+            
+            final_data <- data.frame(new_stock_timestamp,Close,High,Low,Open,Volume)
+            
+            final_data$dates <- as.POSIXct(final_data$new_stock_timestamp, origin="1970-01-01")
+            
+            final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+          }
+          else{
+            final_data$dates <- as.POSIXct(final_data$V1, origin="1970-01-01")
+            
+            final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+          }
+          # print(final_data)
+          
+          sub_df = final_levels_df[final_levels_df$Stock == stock,]
+          
+          rownames(sub_df) <- 1
+          
+          # print(sub_df)
+          
+          if(sub_df[1,2] == "Yes"){
+            satisfied_df = data.frame()
+            
+            for(i in 1:nrow(final_data)){
+              if((final_data[i,"Close"]) > sub_df[1,3]){
+                satisfied_df = rbind(satisfied_df,final_data[i,])
+              }
+              else{
+                next
+              }
+            }
+            if(nrow(satisfied_df) == 0){
+              next
+            }
+            else{
+              satisfied_df = head(satisfied_df,1)
+              # print(satisfied_df)
+              Signal_df[increment,"Strategy"] <- "Cowboy"
+              Signal_df[increment,"Stock"]=stock
+              Signal_df[increment,"Signal"]="Buy"
+              Signal_df[increment,"Datetime"]=satisfied_df[1,"dates"]
+              Signal_df[increment,"Value"]=satisfied_df[1,"Close"]
+              
+              increment = increment + 1
+            }
+          }
+          else{
+            next
+          }
+          
+          if(sub_df[1,4] == "Yes"){
+            satisfied_df = data.frame()
+            
+            for(i in 1:nrow(final_data)){
+              if((final_data[i,"Close"]) < sub_df[1,5]){
+                # print("Sell")
+                satisfied_df = rbind(satisfied_df,final_data[i,])
+                # print(satisfied_df)
+              }
+              else{
+                next
+              }
+              
+            }
+            
+            
+            if(nrow(satisfied_df) == 0){
+              next
+            }
+            else{
+              satisfied_df = head(satisfied_df,1)
+              Signal_df[increment,"Strategy"] <- "Cowboy"
+              Signal_df[increment,"Stock"]=stock
+              Signal_df[increment,"Signal"]="Sell"
+              Signal_df[increment,"Datetime"]=satisfied_df[1,"dates"]
+              Signal_df[increment,"Value"]=satisfied_df[1,"Close"]
+              
+              increment = increment + 1
+            }
+          }
+          else{
+            next
+          }
+          
+          
+        }
+      }
+      else if(input$bot_strategy[i] == "reds_rocket"){
+        # browser()
+        # final_levels_df = data.frame("Stock" = character(0),"Reds_High" = numeric(0),"Reds_Low"=numeric(0))
+        # 
+        # inc = 1
+        # 
+        # for(i in 1:nrow(nse_data)){
+        #   stock = nse_data[i,2]
+        #   today = Sys.Date()
+        #   f <- function(d)if(format(d - 1, '%w') %in% c(0, 5)) Recall(d - 1) else d
+        #   previousWorkingDay <- f(today) - 1
+        #   
+        #   stock_data <- getSymbols(stock, src = "yahoo", from = "2021-01-01", to = previousWorkingDay, auto.assign = FALSE)
+        #   # stock_data <- getSymbols(stock, src = "yahoo", from = "2021-01-01", to = "2021-01-15", auto.assign = FALSE)
+        #   
+        #   
+        #   stock_data <- tail(stock_data,4)
+        #   
+        #   # print(stock_data)
+        #   
+        #   stock_data <- as.data.frame(stock_data)
+        #   
+        #   rownames(stock_data) <- 1:4
+        #   
+        #   l1_day_range <- abs(stock_data[4,2] - stock_data[4,3])
+        #   l2_day_range <- abs(stock_data[3,2] - stock_data[3,3])
+        #   l3_day_range <- abs(stock_data[2,2] - stock_data[2,3])
+        #   l4_day_range <- abs(stock_data[1,2] - stock_data[1,3])
+        #   
+        #   l2_day_high <- stock_data[3,2]
+        #   l1_day_high <- stock_data[4,2]
+        #   
+        #   l2_day_low <- stock_data[3,3]
+        #   l1_day_low <- stock_data[4,3]
+        #   
+        #   if((l1_day_range < l2_day_range) && (l1_day_range < l3_day_range) && (l1_day_range < l4_day_range)){
+        #     if(l1_day_low > l2_day_low && l1_day_high < l2_day_high){
+        #       
+        #       final_levels_df[inc,"Stock"] = stock
+        #       final_levels_df[inc,"Reds_High"] = l1_day_high
+        #       final_levels_df[inc,"Reds_Low"] = l1_day_low
+        #       
+        #       
+        #       
+        #       inc = inc + 1
+        #     }
+        #     
+        #   }
+        #   else{
+        #     next
+        #   }
+        # }
+        
+        final_levels_df <- read.csv(paste0(getwd(),"/data/reds_rocket.csv", sep = ""))
+        
+        final_levels_df <- subset(final_levels_df, select = -c(X) )
+        
+        
+        if(nrow(final_levels_df) > 0){
+          # Signal_df = data.frame("Stock"=character(0),"Signal"=character(0),"Datetime"=character(0),"Value"=character(0))
+          
+          # increment = 1
+          
+          for(i in 1:nrow(final_levels_df)){
+            stock = final_levels_df[i,"Stock"]
+            print(stock)
+            response_data <- fromJSON(paste0("https://query1.finance.yahoo.com/v8/finance/chart/",stock,"?region=IN&lang=en-IN&includePrePost=false&interval=",input$bot_timeframe,"&range=1d&corsDomain=in.finance.yahoo.com&.tsrc=financet",""))
+            
+            stock_timestamp <- response_data$chart$result[[1]]$timestamp
+            Close <- response_data$chart$result[[1]]$indicators$quote[[1]]$close
+            High <- response_data$chart$result[[1]]$indicators$quote[[1]]$high
+            Low <- response_data$chart$result[[1]]$indicators$quote[[1]]$low
+            Open <- response_data$chart$result[[1]]$indicators$quote[[1]]$open
+            Volume <- response_data$chart$result[[1]]$indicators$quote[[1]]$volume
+            
+            final_data <- as.data.frame(cbind(as.POSIXct(stock_timestamp, origin="1970-01-01"),Close,High,Low,Open,Volume))
+            if(typeof(final_data$V1) == "list"){
+              final_data <- final_data[-c(which(final_data$Close == "NULL")),]
+              new_stock_timestamp <- unlist(final_data$V1)
+              Close <- unlist(final_data$Close)
+              High <- unlist(final_data$High)
+              Open <- unlist(final_data$Open)
+              Low <- unlist(final_data$Low)
+              Volume <- unlist(final_data$Volume)
+              
+              final_data <- data.frame(new_stock_timestamp,Close,High,Low,Open,Volume)
+              
+              final_data$dates <- as.POSIXct(final_data$new_stock_timestamp, origin="1970-01-01")
+              
+              final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+            }
+            else{
+              final_data$dates <- as.POSIXct(final_data$V1, origin="1970-01-01")
+              
+              final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+            }
+            print(final_data)
+            
+            final_data$Call <- ""
+            
+            satisfied_df = data.frame(dates = character(0),Open = numeric(0),High=numeric(0),Low = numeric(0),Close = numeric(0),Volume = numeric(0),Call=character(0))
+            
+            for(j in 1:nrow(final_data)){
+              
+              
+              if((final_data[j,"Close"]) > final_levels_df[i,"Reds_High"]){
+                # print(satisfied_df)
+                satisfied_df = rbind(satisfied_df,final_data[j,])
+                rownames(satisfied_df) <- 1:nrow(satisfied_df)
+                # print("Buy")
+                # print(satisfied_df)
+                satisfied_df[nrow(satisfied_df),"Call"] <- "Buy"
+              }
+              else if((final_data[j,"Close"]) < final_levels_df[i,"Reds_Low"]){
+                
+                satisfied_df = rbind(satisfied_df,final_data[j,])
+                rownames(satisfied_df) <- 1:nrow(satisfied_df)
+                # print("Sell")
+                # print(satisfied_df)
+                satisfied_df[nrow(satisfied_df),"Call"] <- "Sell"
+              }
+              else{
+                next
+              }
+            }
+            # print(nrow(satisfied_df))
+            if(nrow(satisfied_df) == 0){
+              next
+            }
+            else{
+              satisfied_df = head(satisfied_df,1)
+              # print(satisfied_df)
+              Signal_df[increment,"Strategy"] <- "Reds Rocket"
+              Signal_df[increment,"Stock"]=stock
+              Signal_df[increment,"Signal"]=satisfied_df[1,"Call"]
+              Signal_df[increment,"Datetime"]=satisfied_df[1,"dates"]
+              Signal_df[increment,"Value"]=satisfied_df[1,"Close"]
+              
+              increment = increment + 1
+            }
+            
+          }
+        }
+        
+      }
+      else if(input$bot_strategy[i] == "reds_brahmos"){
+        # final_levels_df = data.frame("Stock" = character(0),"Reds_High" = numeric(0),"Reds_Low"=numeric(0))
+        # 
+        # inc = 1
+        # 
+        # for(i in 1:nrow(nse_data)){
+        #   stock = nse_data[i,2]
+        #   today = Sys.Date()
+        #   f <- function(d)if(format(d - 1, '%w') %in% c(0, 5)) Recall(d - 1) else d
+        #   previousWorkingDay <- f(today) - 1
+        #   
+        #   stock_data <- getSymbols(stock, src = "yahoo", from = "2021-01-01", to = previousWorkingDay, auto.assign = FALSE)
+        #   # stock_data <- getSymbols(stock, src = "yahoo", from = "2021-01-01", to = "2021-01-15", auto.assign = FALSE)
+        #   
+        #   
+        #   stock_data <- tail(stock_data,6)
+        #   
+        #   # print(stock_data)
+        #   
+        #   stock_data <- as.data.frame(stock_data)
+        #   
+        #   rownames(stock_data) <- 1:6
+        #   
+        #   l1_day_range <- abs(stock_data[6,2] - stock_data[6,3])
+        #   l2_day_range <- abs(stock_data[5,2] - stock_data[5,3])
+        #   l3_day_range <- abs(stock_data[4,2] - stock_data[4,3])
+        #   l4_day_range <- abs(stock_data[3,2] - stock_data[3,3])
+        #   l5_day_range <- abs(stock_data[2,2] - stock_data[2,3])
+        #   l6_day_range <- abs(stock_data[1,2] - stock_data[1,3])
+        #   
+        #   l2_day_high <- stock_data[5,2]
+        #   l1_day_high <- stock_data[6,2]
+        #   
+        #   l2_day_low <- stock_data[5,3]
+        #   l1_day_low <- stock_data[6,3]
+        #   
+        #   if((l1_day_range < l2_day_range) && (l1_day_range < l3_day_range) && (l1_day_range < l4_day_range) && (l1_day_range < l5_day_range) && (l1_day_range < l6_day_range)){
+        #    
+        #       
+        #       final_levels_df[inc,"Stock"] = stock
+        #       final_levels_df[inc,"Reds_High"] = l1_day_high
+        #       final_levels_df[inc,"Reds_Low"] = l1_day_low
+        #       
+        #       inc = inc + 1
+        # }
+        # 
+        # }
+        final_levels_df <- read.csv(paste0(getwd(),"/data/reds_brahmos.csv", sep = ""))
+        
+        final_levels_df <- subset(final_levels_df, select = -c(X) )
+        
+        if(nrow(final_levels_df) > 0){
+          
+          # Signal_df = data.frame("Stock"=character(0),"Signal"=character(0),"Datetime"=character(0),"Value"=character(0))
+          
+          # increment = 1
+          
+          for(i in 1:nrow(final_levels_df)){
+            stock = final_levels_df[i,"Stock"]
+            print(stock)
+            response_data <- fromJSON(paste0("https://query1.finance.yahoo.com/v8/finance/chart/",stock,"?region=IN&lang=en-IN&includePrePost=false&interval=",input$bot_timeframe,"&range=1d&corsDomain=in.finance.yahoo.com&.tsrc=financet",""))
+            
+            stock_timestamp <- response_data$chart$result[[1]]$timestamp
+            Close <- response_data$chart$result[[1]]$indicators$quote[[1]]$close
+            High <- response_data$chart$result[[1]]$indicators$quote[[1]]$high
+            Low <- response_data$chart$result[[1]]$indicators$quote[[1]]$low
+            Open <- response_data$chart$result[[1]]$indicators$quote[[1]]$open
+            Volume <- response_data$chart$result[[1]]$indicators$quote[[1]]$volume
+            
+            final_data <- as.data.frame(cbind(as.POSIXct(stock_timestamp, origin="1970-01-01"),Close,High,Low,Open,Volume))
+            if(typeof(final_data$V1) == "list"){
+              final_data <- final_data[-c(which(final_data$Close == "NULL")),]
+              new_stock_timestamp <- unlist(final_data$V1)
+              Close <- unlist(final_data$Close)
+              High <- unlist(final_data$High)
+              Open <- unlist(final_data$Open)
+              Low <- unlist(final_data$Low)
+              Volume <- unlist(final_data$Volume)
+              
+              final_data <- data.frame(new_stock_timestamp,Close,High,Low,Open,Volume)
+              
+              final_data$dates <- as.POSIXct(final_data$new_stock_timestamp, origin="1970-01-01")
+              
+              final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+            }
+            else{
+              final_data$dates <- as.POSIXct(final_data$V1, origin="1970-01-01")
+              
+              final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+            }
+            print(final_data)
+            
+            final_data$Call <- ""
+            
+            satisfied_df = data.frame(dates = character(0),Open = numeric(0),High=numeric(0),Low = numeric(0),Close = numeric(0),Volume = numeric(0),Call=character(0))
+            
+            for(j in 1:nrow(final_data)){
+              
+              
+              if((final_data[j,"Close"]) > final_levels_df[i,"Reds_High"]){
+                # print(satisfied_df)
+                satisfied_df = rbind(satisfied_df,final_data[j,])
+                rownames(satisfied_df) <- 1:nrow(satisfied_df)
+                # print("Buy")
+                # print(satisfied_df)
+                satisfied_df[nrow(satisfied_df),"Call"] <- "Buy"
+              }
+              else if((final_data[j,"Close"]) < final_levels_df[i,"Reds_Low"]){
+                
+                satisfied_df = rbind(satisfied_df,final_data[j,])
+                rownames(satisfied_df) <- 1:nrow(satisfied_df)
+                # print("Sell")
+                # print(satisfied_df)
+                satisfied_df[nrow(satisfied_df),"Call"] <- "Sell"
+              }
+              else{
+                next
+              }
+            }
+            # print(nrow(satisfied_df))
+            if(nrow(satisfied_df) == 0){
+              next
+            }
+            else{
+              satisfied_df = head(satisfied_df,1)
+              # print(satisfied_df)
+              Signal_df[increment,"Strategy"] <- "Reds Brahmos"
+              Signal_df[increment,"Stock"]=stock
+              Signal_df[increment,"Signal"]=satisfied_df[1,"Call"]
+              Signal_df[increment,"Datetime"]=satisfied_df[1,"dates"]
+              Signal_df[increment,"Value"]=satisfied_df[1,"Close"]
+              
+              increment = increment + 1
+            }
+            
+          }
+        }
+        
+        
+      }
+      else if(input$bot_strategy[i] == "blackout"){
+        # final_levels_df = data.frame("Stock" = character(0),"target" = numeric(0),"stage" = character(0))
+        # 
+        # inc = 1
+        # 
+        # for(i in 1:nrow(nse_data)){
+        #   stock = nse_data[i,2]
+        #   # print(stock)
+        #   today = Sys.Date()
+        #   f <- function(d)if(format(d - 1, '%w') %in% c(0, 5)) Recall(d - 1) else d
+        #   previousWorkingDay <- f(today) - 1
+        #   
+        #   stock_data <- getSymbols(stock, src = "yahoo", from = "2021-01-01", to = previousWorkingDay, auto.assign = FALSE)
+        #   # stock_data <- getSymbols(stock, src = "yahoo", from = "2021-01-01", to = "2021-01-15", auto.assign = FALSE)
+        #   
+        #   
+        #   stock_data <- tail(stock_data,4)
+        #   
+        #   # print(stock_data)
+        #   
+        #   stock_data <- as.data.frame(stock_data)
+        #   
+        #   rownames(stock_data) <- 1:4
+        #   
+        #   l1_low <- stock_data[4,3]
+        #   l2_low <- stock_data[3,3]
+        #   l3_low <- stock_data[2,3]
+        #   l4_low <- stock_data[1,3]
+        #   
+        #   l1_high <- stock_data[4,2]
+        #   l2_high <- stock_data[3,2]
+        #   l3_high <- stock_data[2,2]
+        #   l4_high <- stock_data[1,2]
+        #   
+        #   if((l1_low > l2_low) && (l1_high > l2_high) && (l2_low > l3_low) && (l2_high > l3_high) && (l3_low > l4_low) && (l3_high > l4_high)){
+        #     l1_open <- stock_data[4,1]
+        #     l1_close <- stock_data[4,4]
+        #     real_body <- abs(l1_open - l1_close)
+        #     body_high <- max(l1_open,l1_close)
+        #     if((l1_high - body_high) > 2*(real_body)){
+        #       final_levels_df[inc,"Stock"] = stock
+        #       final_levels_df[inc,"target"] = l1_low
+        #       final_levels_df[inc,"stage"] = "Short"
+        #       
+        #       inc = inc + 1
+        #     }
+        #     
+        #     
+        #   }
+        #   else if((l1_low < l2_low) && (l1_high < l2_high) && (l2_low < l3_low) && (l2_high < l3_high) && (l3_low < l4_low) && (l3_high < l4_high)){
+        #     l1_open <- stock_data[4,1]
+        #     l1_close <- stock_data[4,4]
+        #     real_body <- abs(l1_open - l1_close)
+        #     body_low <- min(l1_open,l1_close)
+        #     if((l1_low - body_low) > 2*(real_body)){
+        #       final_levels_df[inc,"Stock"] = stock
+        #       final_levels_df[inc,"target"] = l1_high
+        #       final_levels_df[inc,"stage"] = "Long"
+        #       inc = inc + 1
+        #     }
+        #     
+        #     
+        #   }
+        #   else{
+        #     next
+        #   }
+        # }
+        final_levels_df <- read.csv(paste0(getwd(),"/data/blackout.csv", sep = ""))
+        
+        final_levels_df <- subset(final_levels_df, select = -c(X))
+        
+        if(nrow(final_levels_df) > 0){
+          # Signal_df = data.frame("Stock"=character(0),"Signal"=character(0),"Datetime"=character(0),"Value"=character(0))
+          
+          # increment = 1
+          
+          if(nrow(final_levels_df) > 0){
+            
+            for(i in 1:nrow(final_levels_df)){
+              stock = final_levels_df[i,"Stock"]
+              print(stock)
+              response_data <- fromJSON(paste0("https://query1.finance.yahoo.com/v8/finance/chart/",stock,"?region=IN&lang=en-IN&includePrePost=false&interval=",input$bot_timeframe,"&range=1d&corsDomain=in.finance.yahoo.com&.tsrc=financet",""))
+              
+              stock_timestamp <- response_data$chart$result[[1]]$timestamp
+              Close <- response_data$chart$result[[1]]$indicators$quote[[1]]$close
+              High <- response_data$chart$result[[1]]$indicators$quote[[1]]$high
+              Low <- response_data$chart$result[[1]]$indicators$quote[[1]]$low
+              Open <- response_data$chart$result[[1]]$indicators$quote[[1]]$open
+              Volume <- response_data$chart$result[[1]]$indicators$quote[[1]]$volume
+              
+              final_data <- as.data.frame(cbind(as.POSIXct(stock_timestamp, origin="1970-01-01"),Close,High,Low,Open,Volume))
+              if(typeof(final_data$V1) == "list"){
+                final_data <- final_data[-c(which(final_data$Close == "NULL")),]
+                new_stock_timestamp <- unlist(final_data$V1)
+                Close <- unlist(final_data$Close)
+                High <- unlist(final_data$High)
+                Open <- unlist(final_data$Open)
+                Low <- unlist(final_data$Low)
+                Volume <- unlist(final_data$Volume)
+                
+                final_data <- data.frame(new_stock_timestamp,Close,High,Low,Open,Volume)
+                
+                final_data$dates <- as.POSIXct(final_data$new_stock_timestamp, origin="1970-01-01")
+                
+                final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+              }
+              else{
+                final_data$dates <- as.POSIXct(final_data$V1, origin="1970-01-01")
+                
+                final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+              }
+              # print(final_data)
+              
+              
+              final_data$Call <- ""
+              
+              
+              
+              satisfied_df = data.frame(dates = character(0),Open = numeric(0),High=numeric(0),Low = numeric(0),Close = numeric(0),Volume = numeric(0),Call=character(0))
+              
+              if(final_levels_df[i,"stage"] == "Short"){
+                for(j in 1:nrow(final_data)){
+                  if((final_data[j,"Close"]) < final_levels_df[i,"target"]){
+                    satisfied_df = rbind(satisfied_df,final_data[j,])
+                    rownames(satisfied_df) <- 1:nrow(satisfied_df)
+                    satisfied_df[nrow(satisfied_df),"Call"] <- "Sell"
+                  }
+                  
+                }
+              }
+              else{
+                for(j in 1:nrow(final_data)){
+                  if((final_data[j,"Close"]) > final_levels_df[i,"target"]){
+                    satisfied_df = rbind(satisfied_df,final_data[j,])
+                    rownames(satisfied_df) <- 1:nrow(satisfied_df)
+                    satisfied_df[nrow(satisfied_df),"Call"] <- "Buy"
+                  }
+                  
+                }
+              }
+              # print(satisfied_df)
+              
+              if(nrow(satisfied_df) == 0){
+                next
+              }
+              else{
+                satisfied_df = head(satisfied_df,1)
+                # print(satisfied_df)
+                Signal_df[increment,"Strategy"] <- "Blackout"
+                Signal_df[increment,"Stock"]=stock
+                Signal_df[increment,"Signal"]=satisfied_df[1,"Call"]
+                Signal_df[increment,"Datetime"]=satisfied_df[1,"dates"]
+                Signal_df[increment,"Value"]=satisfied_df[1,"Close"]
+                
+                increment = increment + 1
+              }
+            }
+            
+          }
+        }
+        
+      }
+      # else{
+      #   next
+      # }
+      
+    }
+    
+    # browser()
+    
+    if(nrow(Signal_df) == 0){
+      # next
+    }else{
+      Signal_df$Datetime <- as.POSIXct(as.numeric(as.character(Signal_df$Datetime)),origin="1970-01-01")
+      
+      Signal_df$Datetime <- Signal_df$Datetime + hm("5:30") 
+      
+      Signal_df <- Signal_df[order(Signal_df$Datetime),]
+      
+      rownames(Signal_df) <- 1:nrow(Signal_df)
+      
+      Signal_df$Value <- round(as.numeric(Signal_df$Value),2)
+      
+      stop_loss <- as.numeric(input$bot_loss)
+      target <- as.numeric(input$bot_profit)
+      
+      # entry_point <- input$entry_point
+      
+      # market_direction <- as.numeric(input$market_direction)
+      # 
+      Capital <- input$bot_capital
+      # browser()
+      Signal_df$StopLoss <- ifelse(Signal_df$Signal == "Buy",Signal_df$Value-((stop_loss*Signal_df$Value)/100),((stop_loss*Signal_df$Value)/100)+Signal_df$Value)
+      Signal_df$Target <- ifelse(Signal_df$Signal == "Buy",Signal_df$Value+((target*Signal_df$Value)/100),Signal_df$Value-((target*Signal_df$Value)/100))
+      
+      # Signal_df$Qty <- round(abs((2/100)*Capital/(Signal_df$Target - Signal_df$StopLoss)),0)
+      
+      # qty <- round(market_direction*((2/100)*Capital/(entry_point - stop_loss)),0)
+    }
+
+if(nrow(Signal_df) == 0){
+  print("Hello")    
+  next
+} else {
+      Signal_df$Datetime <- as.POSIXct(as.numeric(as.character(Signal_df$Datetime)),origin="1970-01-01")
+      
+      Signal_df$Datetime <- Signal_df$Datetime + hm("5:30") 
+      
+      Signal_df <- Signal_df[order(Signal_df$Datetime),]
+      
+      rownames(Signal_df) <- 1:nrow(Signal_df)
+      
+      Signal_df$Value <- round(as.numeric(Signal_df$Value),2)
+      
+      stop_loss <- as.numeric(input$bot_loss)
+      target <- as.numeric(input$bot_profit)
+      
+      # entry_point <- input$entry_point
+      
+      # market_direction <- as.numeric(input$market_direction)
+      # 
+      Capital <- input$bot_capital
+      # browser()
+      Signal_df$StopLoss <- ifelse(Signal_df$Signal == "Buy",Signal_df$Value-((stop_loss*Signal_df$Value)/100),((stop_loss*Signal_df$Value)/100)+Signal_df$Value)
+      Signal_df$Target <- ifelse(Signal_df$Signal == "Buy",Signal_df$Value+((target*Signal_df$Value)/100),Signal_df$Value-((target*Signal_df$Value)/100))
+      
+      # Signal_df$Qty <- round(abs((2/100)*Capital/(Signal_df$Target - Signal_df$StopLoss)),0)
+      
+      # qty <- round(market_direction*((2/100)*Capital/(entry_point - stop_loss)),0)
+}
+
+final_signal_df = data.frame(dates = character(0),stock = character(0),Target = character(0),SL = character(0), achieved_ts = character(0), points = character(0))
+
+for(i in 1:nrow(Signal_df))
+    {
+      # browser()
+      stock <- Signal_df[i,"Stock"]
+      call_time <- Signal_df[i,"Datetime"]
+      call_time <- as_datetime(as.character(as_datetime(call_time) - hm("5:30")),tz="Asia/Kolkata")
+      signal_val <- Signal_df[i,"Signal"]
+      StopLoss <- Signal_df[i,"StopLoss"]
+      Target <- Signal_df[i,"Target"]
+      Strategy <- Signal_df[i,"Strategy"]
+      
+      print(stock)
+      
+      response_data <- fromJSON(paste0("https://query1.finance.yahoo.com/v8/finance/chart/",stock,"?region=IN&lang=en-IN&includePrePost=false&interval=",input$bot_timeframe,"&range=1d&corsDomain=in.finance.yahoo.com&.tsrc=financet",""))
+      
+      stock_timestamp <- response_data$chart$result[[1]]$timestamp
+      Close <- response_data$chart$result[[1]]$indicators$quote[[1]]$close
+      High <- response_data$chart$result[[1]]$indicators$quote[[1]]$high
+      Low <- response_data$chart$result[[1]]$indicators$quote[[1]]$low
+      Open <- response_data$chart$result[[1]]$indicators$quote[[1]]$open
+      Volume <- response_data$chart$result[[1]]$indicators$quote[[1]]$volume
+      
+      final_data <- as.data.frame(cbind(as.POSIXct(stock_timestamp, origin="1970-01-01"),Close,High,Low,Open,Volume))
+      if(typeof(final_data$V1) == "list"){
+        final_data <- final_data[-c(which(final_data$Close == "NULL")),]
+        new_stock_timestamp <- unlist(final_data$V1)
+        Close <- unlist(final_data$Close)
+        High <- unlist(final_data$High)
+        Open <- unlist(final_data$Open)
+        Low <- unlist(final_data$Low)
+        Volume <- unlist(final_data$Volume)
+        
+        final_data <- data.frame(new_stock_timestamp,Close,High,Low,Open,Volume)
+        
+        final_data$dates <- as.POSIXct(final_data$new_stock_timestamp, origin="1970-01-01")
+        
+        final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+      }else{
+        final_data$dates <- as.POSIXct(final_data$V1, origin="1970-01-01")
+        
+        final_data <- final_data %>% select(dates, Open, High, Low, Close,Volume)
+      }
+      
+      sub_data <- final_data[final_data$dates > call_time,]
+      
+      satisfied_df = data.frame(Strategy = character(0),dates = character(0),stock = character(0),Target = character(0),SL = character(0), achieved_ts = character(0),points = character(0))
+      
+      
+     incr = 1
+     # browser()
+      
+      if(nrow(sub_data) > 0){
+        rownames(sub_data) <- 1:nrow(sub_data)
+        
+        if(signal_val == "Buy"){
+          for(j in 1:nrow(sub_data)){
+            if((sub_data[j,"High"]) >= Target){
+              satisfied_df[incr,"Strategy"] <- Strategy
+              satisfied_df[incr,"stock"] <- stock
+              satisfied_df[incr,"dates"] <- call_time
+              satisfied_df[incr,"Target"] <- "Yes"
+              satisfied_df[incr,"achieved_ts"] <- sub_data[j,"dates"]
+              satisfied_df[incr,"points"] <- abs(destring(sub_data[j,"High"]) - destring(signal_val))
+              
+              incr = incr + 1
+            }
+            else if((sub_data[j,"Low"]) <= StopLoss){
+              satisfied_df[incr,"Strategy"] <- Strategy
+              satisfied_df[incr,"stock"] <- stock
+              satisfied_df[incr,"dates"] <- call_time
+              satisfied_df[incr,"SL"] <- "Yes"
+              satisfied_df[incr,"achieved_ts"] <- sub_data[j,"dates"]
+              satisfied_df[incr,"points"] <- abs(destring(sub_data[j,"Low"]) - destring(signal_val))
+              incr = incr + 1
+            }
+            else{
+              
+            }
+            
+          }
+          
+        }else{
+          for(j in 1:nrow(sub_data)){
+            if((sub_data[j,"High"]) <= Target){
+              satisfied_df[incr,"Strategy"] <- Strategy
+              satisfied_df[incr,"stock"] <- stock
+              satisfied_df[incr,"dates"] <- call_time
+              satisfied_df[incr,"Target"] <- "Yes"
+              satisfied_df[incr,"achieved_ts"] <- sub_data[j,"dates"]
+              satisfied_df[incr,"points"] <- abs(destring(sub_data[j,"High"]) - destring(signal_val))
+              incr = incr + 1
+            }else if((sub_data[j,"Low"]) >= StopLoss){
+              satisfied_df[incr,"Strategy"] <- Strategy
+              satisfied_df[incr,"stock"] <- stock
+              satisfied_df[incr,"dates"] <- call_time
+              satisfied_df[incr,"SL"] <- "Yes"
+              satisfied_df[incr,"achieved_ts"] <- sub_data[j,"dates"]
+              satisfied_df[incr,"points"] <- abs(destring(sub_data[j,"Low"]) - destring(signal_val))
+              incr = incr + 1
+            }else{
+              
+            }
+          }
+        }
+      }
+     # browser()
+     if(nrow(satisfied_df) == 0){
+       next
+     }
+     else{
+       satisfied_df = head(satisfied_df,1)
+       
+       final_signal_df = rbind(final_signal_df,satisfied_df)
+     }
+}
+
+if(nrow(final_signal_df) > 0){
+      final_signal_df$dates <- as.POSIXct(as.numeric(as.character(final_signal_df$dates)),origin="1970-01-01")
+      
+      final_signal_df$dates <- final_signal_df$dates + hm("5:30")
+      
+      final_signal_df$achieved_ts <- as.POSIXct(as.numeric(as.character(final_signal_df$achieved_ts)),origin="1970-01-01")
+      
+      final_signal_df$achieved_ts <- final_signal_df$achieved_ts + hm("5:30")
+}
+
+
+```
+
+## R Markdown
+
+Algorithmic trading is a process for executing orders utilizing automated and pre-programmed trading instructions to account for variables such as price, timing and volume. 
+
+The Signals data contains `r nrow(Signal_df)` calls for today. Below is the Signals table.
+
+```{r, echo = FALSE}
+
+datatable(Signal_df,extensions = c('FixedColumns'),
+                    options = list(scrollX = TRUE, pageLength=10,fixedColumns = list(leftColumns = 3)
+                    ))
+```
+We are currently trading with 1:1 Risk to Reward ratio.The final data has hit the Stop loss `r    nrow(final_signal_df %>% filter(SL == "Yes"))` and Target `r nrow(final_signal_df %>% filter(Target == "Yes"))` times respectively. Below is the SL and Target hit table for the above stocks
+
+```{r, echo = FALSE}
+# browser()
+datatable(final_signal_df,extensions = c('FixedColumns'),
+                    options = list(scrollX = TRUE, pageLength=10,fixedColumns = list(leftColumns = 3)
+                    ))
+```
+Now lets get into the stocks deepdive of what happened with each and every stock.
+
+
+```{r , echo = FALSE, warning=FALSE}
+knitr::opts_chunk$set(message = FALSE)
+for (i in 1:nrow(final_signal_df)) {
+  cat("\n")
+  cat("\n")
+  stock = final_signal_df[i,"stock"]
+  dates = final_signal_df[i,"dates"]
+  achieved_ts = final_signal_df[i,"achieved_ts"]
+  Sig <- Signal_df[Signal_df$Stock == stock ,]
+  
+  cat("Sweths Violation at ", format(as.POSIXct(Sig$Datetime, origin="1970-01-01") - hm("5:30"),'%d/%m/%y %H:%M:%S')," with price ", Sig$Value," - ",Sig$Signal)
+  # cat(final_signal_df[i,"Target"])
+  
+  
+  Stock_df <- na.omit(getSymbols(stock, src = "yahoo", from = as.Date(input$daterange[1]), to = as.Date(input$daterange[2]), auto.assign = FALSE))
+  
+    Stock_df$Open = Stock_df[,1]
+    Stock_df$High = Stock_df[,2]
+    Stock_df$Low = Stock_df[,3]
+    Stock_df$Close = Stock_df[,4]
+    Stock_df$Volume = Stock_df[,5]
+    Stock_df$Adj = Stock_df[,6]
+    # cat(colnames(Stock_df))
+    # cat(ncol(Stock_df))
+    # cat(knitr::knit_print(DT::datatable(Stock_df, width = "100%")))
+  
+     Stock_df <- Stock_df[,c(7,8,9,10,11,12)]
+      
+      Stock_df <- data.frame(Date = index(Stock_df), coredata(Stock_df) )
+      
+      
+      # Stock_df$v7_MA = ma(Stock_df$Close, order=7)
+      # Stock_df$v30_MA <- ma(Stock_df$Close, order=30)
+      
+      rental_ma <- ts(na.omit(Stock_df$Close), frequency=30)
+      decomp_rental <- stl(rental_ma, s.window="periodic")
+      #plot(decomp_rental)
+      adj_rental <- seasadj(decomp_rental)
+      
+      # if(input$future_seasonal == "NonSeasonal"){
+      #   
+      #   fit <- auto.arima(Stock_df$Close,ic="bic")
+      #   fcast <- forecast(fit)
+      #   
+      # }
+      # else{
+      #   
+      #   fit_s<-auto.arima(adj_rental, seasonal=TRUE)
+      #   fcast <- forecast(fit_s, h=10)
+      #   
+      # }
+      
+      fit_s<-auto.arima(adj_rental, seasonal=TRUE)
+      fcast <- forecast(fit_s, h=10)
+      
+      df <- fortify(fcast)
+      
+      temp_end_Date = as.Date(input$daterange[2])
+      
+      temp_prediction_date <- temp_end_Date + 24
+      
+      date_range <- seq.Date(temp_end_Date, temp_prediction_date, 1)
+      
+      next_days <- date_range[!weekdays(date_range) %in% (c("Saturday", "Sunday")) ]
+      
+      next_days <- as.data.frame(next_days)
+      
+      next_days <- next_days[1:10,]
+      
+      original_dates <- Stock_df$Date
+      
+      original_dates <- as.data.frame(original_dates)
+      next_days <- as.data.frame(next_days)
+      
+      names(original_dates) <- c("Date")
+      names(next_days) <- c("Date")
+      
+      final_dates <- rbind(original_dates,next_days)
+      
+      df$Date <- as.Date(final_dates$Date)
+      
+      temp <- head(df[which(df$`Point Forecast`>0),],1)
+      
+      forecasted <- as.numeric(temp$`Point Forecast`)
+      ci_low_80 <- as.numeric(temp$`Lo 80`)
+      ci_high_80 <- as.numeric(temp$`Hi 80`)
+      ci_low_95 <- as.numeric(temp$`Lo 95`)
+      ci_high_95 <- as.numeric(temp$`Hi 95`)
+      
+      cat("Forecasted values : Actual forecast - ",forecasted,", Confidence 80 - ",ci_low_80,",",ci_high_80," and "," Confidence 95 - ",ci_low_95,",",ci_high_95)
+      
+      if(!is.na(final_signal_df[i,"Target"])){
+    cat("\n")
+    # cat(knitr::knit_print(DT::datatable(Sig, width = "100%")))
+    cat("Target hit at ",format(as_datetime(achieved_ts,tz = "Asia/Kolkata"),'%d/%m/%y %H:%M:%S')," with price ",Sig$Target)
+  }
+  else{
+    cat("\n")
+    cat("Stop Loss hit at ",format(as_datetime(achieved_ts,tz = "Asia/Kolkata"),'%d/%m/%y %H:%M:%S')," with price ",Sig$StopLoss)
+  }
+ 
+  
+}
+```
